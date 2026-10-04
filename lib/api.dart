@@ -92,6 +92,11 @@ class TaskioApi {
     return list;
   }
 
+  Future<Project> createProject(String name, String color) async {
+    final data = await _send('POST', '/api/projects', body: {'name': name, 'color': color});
+    return Project.fromJson(data['project']);
+  }
+
   String taskPath({String? view, String? projectId, bool includeCompleted = false}) {
     final query = projectId != null ? '?project_id=$projectId' : '?view=${view ?? 'inbox'}';
     return '/api/tasks$query${includeCompleted ? '&completed=1' : ''}';
