@@ -97,6 +97,10 @@ class TaskioApi {
     return Project.fromJson(data['project']);
   }
 
+  Future<void> deleteProject(String id) async {
+    await _send('DELETE', '/api/projects/$id');
+  }
+
   String taskPath({String? view, String? projectId, bool includeCompleted = false}) {
     final query = projectId != null ? '?project_id=$projectId' : '?view=${view ?? 'inbox'}';
     return '/api/tasks$query${includeCompleted ? '&completed=1' : ''}';
