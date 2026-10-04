@@ -152,6 +152,21 @@ class _HomeScreenState extends State<HomeScreen> {
     await Reminders.schedule(task.id, task.content, DateTime.parse(task.reminderAt!).toLocal());
   }
 
+  Future<void> removeTask(TaskItem task) async {
+    final ok = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Delete task?'),
+      content: Text(task.content),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+      ],
+    ));
+    if (ok != true) return;
+    await widget.api.deleteTask(task.id);
+    await Reminders.cancel(task.id);
+    load();
+  }
+
   Future<void> editTask({TaskItem? existing}) async {
     final content = TextEditingController(text: existing?.content ?? '');
     final description = TextEditingController(text: existing?.description ?? '');
@@ -164,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
     DateTime? reminder = existing?.reminderAt == null ? null : DateTime.tryParse(existing!.reminderAt!)?.toLocal();
     var priority = existing?.priority ?? 1;
     var selectedProject = existing?.projectId ?? projectId;
-    final ok = await showModalBottomSheet<bool>(context: context, isScrollControlled: true, builder: (context) {
+    final action = await showModalBottomSheet<String>(context: context, isScrollControlled: true, builder: (context) {
       return Padding(
         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 16, right: 16, top: 16),
         child: StatefulBuilder(builder: (context, setModal) {
@@ -194,13 +209,20 @@ class _HomeScreenState extends State<HomeScreen> {
               }, child: Text(reminder == null ? 'Reminder' : '${reminder!.day}/${reminder!.month} ${reminder!.hour}:${reminder!.minute.toString().padLeft(2, '0')}')),
             ]),
             DropdownButton<String>(value: selectedProject, hint: const Text('Project'), items: projects.map((p) => DropdownMenuItem(value: p.id, child: Text(p.name))).toList(), onChanged: (v) => setModal(() => selectedProject = v)),
-            FilledButton(onPressed: () => Navigator.pop(context, true), child: Text(existing == null ? 'Add task' : 'Save')),
+            Row(children: [
+              FilledButton(onPressed: () => Navigator.pop(context, 'save'), child: Text(existing == null ? 'Add task' : 'Save')),
+              if (existing != null) TextButton(onPressed: () => Navigator.pop(context, 'delete'), child: const Text('Delete')),
+            ]),
             const SizedBox(height: 12),
           ]));
         }),
       );
     });
-    if (ok != true || content.text.trim().isEmpty) return;
+    if (action == 'delete' && existing != null) {
+      await removeTask(existing);
+      return;
+    }
+    if (action != 'save' || content.text.trim().isEmpty) return;
     final dueDate = due == null ? null : '${due!.year.toString().padLeft(4, '0')}-${due!.month.toString().padLeft(2, '0')}-${due!.day.toString().padLeft(2, '0')}';
     final dueTime = time == null ? null : '${time!.hour.toString().padLeft(2, '0')}:${time!.minute.toString().padLeft(2, '0')}';
     final reminderAt = reminder?.toUtc().toIso8601String();
@@ -216,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<Widget> taskTiles(List<TaskItem> items) {
     return items.map((task) => ListTile(
-      onLongPress: () => editTask(existing: task),
+      onTap: () => editTask(existing: task),
       leading: IconButton(
         icon: Icon(task.isCompleted ? Icons.check_circle : Icons.circle_outlined, color: priorityColor(task.priority)),
         onPressed: () async {
@@ -226,8 +248,11 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
       title: Text(task.content, style: TextStyle(decoration: task.isCompleted ? TextDecoration.lineThrough : null)),
-      subtitle: Text([task.dueLabel, if (task.reminderAt != null) 'Reminder set', task.description].where((s) => s.isNotEmpty).join(' · ')),
-      trailing: Icon(Icons.flag, color: priorityColor(task.priority)),
+      subtitle: Text([task.dueLabel, if (task.reminderAt != null) 'Reminder set', task.description].where((s) => s.isNotEmpty).join(' \u00b7 ')),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.flag, color: priorityColor(task.priority)),
+        IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => removeTask(task)),
+      ]),
     )).toList();
   }
 
@@ -255,7 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ...taskTiles(open),
       if (showCompleted && done.isNotEmpty) const Padding(padding: EdgeInsets.fromLTRB(16, 16, 16, 4), child: Text('Completed', style: TextStyle(fontWeight: FontWeight.w700))),
       if (showCompleted) ...taskTiles(done),
-      if (open.isEmpty && done.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No tasks. Long-press a task to edit.'))),
+      if (open.isEmpty && done.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No tasks. Tap a task to edit.'))),
     ]);
   }
 
