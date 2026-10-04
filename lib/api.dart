@@ -30,6 +30,23 @@ class TaskioApi {
     await prefs.remove(_tokenKey);
   }
 
+  String _cacheKey(String path) => 'cache:${baseUrl}:${token ?? ''}:$path';
+
+  Future<List<TaskItem>?> cachedTasks(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cacheKey(path));
+    if (raw == null) return null;
+    final list = jsonDecode(raw) as List;
+    return list.map((e) => TaskItem.fromJson(e)).toList();
+  }
+
+  Future<List<Project>?> cachedProjects() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_cacheKey('/api/projects'));
+    if (raw == null) return null;
+    return (jsonDecode(raw) as List).map((e) => Project.fromJson(e)).toList();
+  }
+
   Future<Map<String, dynamic>> _send(String method, String path, {Map<String, dynamic>? body}) async {
     final uri = Uri.parse('$baseUrl$path');
     final headers = {
@@ -56,38 +73,37 @@ class TaskioApi {
   }
 
   Future<User> register(String name, String email, String password) async {
-    final data = await _send('POST', '/api/auth/register', body: {
-      'name': name,
-      'email': email,
-      'password': password,
-    });
+    final data = await _send('POST', '/api/auth/register', body: {'name': name, 'email': email, 'password': password});
     await _saveToken(data['token']);
     return User.fromJson(data['user']);
   }
 
   Future<User> login(String email, String password) async {
-    final data = await _send('POST', '/api/auth/login', body: {
-      'email': email,
-      'password': password,
-    });
+    final data = await _send('POST', '/api/auth/login', body: {'email': email, 'password': password});
     await _saveToken(data['token']);
     return User.fromJson(data['user']);
   }
 
   Future<List<Project>> projects() async {
     final data = await _send('GET', '/api/projects');
-    return (data['projects'] as List).map((e) => Project.fromJson(e)).toList();
+    final list = (data['projects'] as List).map((e) => Project.fromJson(e)).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cacheKey('/api/projects'), jsonEncode(list.map((e) => e.toJson()).toList()));
+    return list;
   }
 
-  Future<Project> createProject(String name, String color) async {
-    final data = await _send('POST', '/api/projects', body: {'name': name, 'color': color});
-    return Project.fromJson(data['project']);
-  }
-
-  Future<List<TaskItem>> tasks({String? view, String? projectId}) async {
+  String taskPath({String? view, String? projectId, bool includeCompleted = false}) {
     final query = projectId != null ? '?project_id=$projectId' : '?view=${view ?? 'inbox'}';
-    final data = await _send('GET', '/api/tasks$query');
-    return (data['tasks'] as List).map((e) => TaskItem.fromJson(e)).toList();
+    return '/api/tasks$query${includeCompleted ? '&completed=1' : ''}';
+  }
+
+  Future<List<TaskItem>> tasks({String? view, String? projectId, bool includeCompleted = false}) async {
+    final path = taskPath(view: view, projectId: projectId, includeCompleted: includeCompleted);
+    final data = await _send('GET', path);
+    final list = (data['tasks'] as List).map((e) => TaskItem.fromJson(e)).toList();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_cacheKey(path), jsonEncode(list.map((e) => e.toJson()).toList()));
+    return list;
   }
 
   Future<TaskItem> createTask({
@@ -96,6 +112,7 @@ class TaskioApi {
     int priority = 1,
     String? dueDate,
     String? dueTime,
+    String? reminderAt,
     String description = '',
   }) async {
     final data = await _send('POST', '/api/tasks', body: {
@@ -104,13 +121,15 @@ class TaskioApi {
       'priority': priority,
       'due_date': dueDate,
       'due_time': dueTime,
+      'reminder_at': reminderAt,
       'description': description,
     });
     return TaskItem.fromJson(data['task']);
   }
 
-  Future<void> updateTask(String id, Map<String, dynamic> body) async {
-    await _send('PATCH', '/api/tasks/$id', body: body);
+  Future<TaskItem> updateTask(String id, Map<String, dynamic> body) async {
+    final data = await _send('PATCH', '/api/tasks/$id', body: body);
+    return TaskItem.fromJson(data['task']);
   }
 
   Future<void> deleteTask(String id) async {
